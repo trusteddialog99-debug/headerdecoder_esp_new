@@ -7,6 +7,59 @@ from email.utils import parseaddr
 from email.header import decode_header
 import olefile
 
+# ---------------------------------------------------------
+# DKIM SELECTOR MASTER LIST  (Konsolidiert)
+# ---------------------------------------------------------
+
+DKIM_PROVIDERS = {
+    "Google Workspace / Gmail": ["google", "google", "selector1", "selector2"],
+    "Microsoft 365 / Exchange Online": ["selector1", "selector2", "microsoft"],
+    "Amazon SES": ["amazonses", "ses"],
+    "SendGrid": ["s1", "s2", "sendgrid", "smtpapi"],
+    "Mailgun": ["mailgun", "mg"],
+    "Postmark": ["pm", "postmark"],
+    "SparkPost": ["scph", "sparkpost"],
+    "Salesforce Marketing Cloud": ["exacttarget", "sfdc", "salesforce", "50dkim1"],
+    "SAP Emarsys": ["key1", "key2", "10dkim1", "200608", "dkim0"],
+    "Pardot": ["pardot"],
+    "Optimizely / Episerver / Optivo": ["mailing", "spop1024"],
+    "Sendinblue / Brevo": ["newsletter2go"],
+    "Inxmail": ["inx", "inxdeka", "abc"],
+    "Mailchimp": ["k1", "k2", "mcsv", "mandrill"],
+    "Mandrill (Mailchimp Transactional)": ["mandrill"],
+    "Mapp": ["ecm1"],
+    "Mailjet": ["mailjet"],
+    "Selligent": ["slgntsdcapi", "sim"],
+    "Agnitas": ["agn"],
+    "Cheetah Digital": ["selsha01", "0", "sim"],
+    "Artegic": ["elaine", "elaine-asp", "exch"],
+    "promio.net": ["default"],
+    "Experian": ["s20141100"],
+    "DeployTeq": ["cd1", "cd2"],
+    "Webanizer": ["m"],
+}
+
+
+def match_dkim_selector(selector: str) -> str | None:
+    """Findet passenden ESP anhand eines DKIM-Selectors aus `DKIM_PROVIDERS`.
+
+    Gibt den Providernamen zurück oder `None`, wenn kein Treffer.
+    """
+    if not selector:
+        return None
+    sel = selector.lower()
+    for esp, keywords in DKIM_PROVIDERS.items():
+        for key in keywords:
+            if not key:
+                continue
+            # exakte Übereinstimmung
+            if sel == key:
+                return esp
+            # Präfix-Match (z.B. inx12345 -> Inxmail)
+            if len(key) > 1 and sel.startswith(key):
+                return esp
+    return None
+
 st.set_page_config(page_title="MSG/EML Header Analyzer (final)", layout="wide")
 
 st.title("MSG / EML Header Analyzer – final")
@@ -178,46 +231,24 @@ def parse_headers(headers: str) -> dict:
 
     # Extended provider detection: consider selector and d= domain
     def lookup_from_selector(sel: str) -> str:
+        # use consolidated DKIM_PROVIDERS matcher first
         if not sel or sel == "-":
             return "Unbekannt"
+        m = match_dkim_selector(sel)
+        if m:
+            return m
+        # fallback: simple substring heuristics
         s = sel.lower()
-        sel_map = {
-            "amazonses": "Amazon SES",
-            "ses": "Amazon SES",
-            "sendgrid": "SendGrid",
-            "sg": "SendGrid",
-            "mailgun": "Mailgun",
-            "mg": "Mailgun",
-            "mandrill": "Mandrill (Mailchimp)",
-            "mailchimp": "Mailchimp",
-            "scph": "SparkPost",
-            "sparkpost": "SparkPost",
-            "postmark": "Postmark",
-            "yandex": "Yandex.Mail",
-            "zoho": "Zoho Mail",
-            "sendinblue": "Sendinblue (Brevo)",
-            "brevo": "Sendinblue (Brevo)",
-            "mailjet": "Mailjet",
-            "elasticemail": "Elastic Email",
-            "mailerlite": "MailerLite",
-            "smtp2go": "SMTP2GO",
-            "sendpulse": "SendPulse",
-            "mailpoet": "MailPoet",
-            "mailrelay": "Mailrelay",
-            "sendwithus": "SendWithUs",
-            "constantcontact": "Constant Contact",
-            "salesforce": "Salesforce",
-            "pardot": "Pardot (Salesforce)",
-            "infusionsoft": "Keap/Infusionsoft",
-            "campaignmonitor": "Campaign Monitor",
-            "dotmailer": "dotmailer",
-            "rackspace": "Rackspace Email",
-            "gandi": "Gandi Mail",
-            "ovh": "OVH Mail",
-        }
-        for k, v in sel_map.items():
-            if k in s:
-                return v
+        if "amazonses" in s or "ses" in s:
+            return "Amazon SES"
+        if "sendgrid" in s or s.startswith("s1") or s.startswith("s2"):
+            return "SendGrid"
+        if "mailgun" in s:
+            return "Mailgun"
+        if "postmark" in s or s == "pm":
+            return "Postmark"
+        if "sparkpost" in s or "scph" in s:
+            return "SparkPost"
         return "Unbekannt"
 
     def lookup_from_domain(dom: str) -> str:
