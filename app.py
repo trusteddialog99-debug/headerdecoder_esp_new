@@ -8,20 +8,27 @@ from email.header import decode_header
 import olefile
 
 # ---------------------------------------------------------
-# DKIM SELECTOR MASTER LIST  (Konsolidiert)
+# DKIM SELECTOR MASTER LIST  (Konsolidiert & erweitert)
 # ---------------------------------------------------------
 
 DKIM_PROVIDERS = {
-    "Google Workspace / Gmail": ["google", "google", "selector1", "selector2"],
+    # Große ESPs
+    "Google Workspace / Gmail": ["google", "selector1", "selector2"],
     "Microsoft 365 / Exchange Online": ["selector1", "selector2", "microsoft"],
     "Amazon SES": ["amazonses", "ses"],
     "SendGrid": ["s1", "s2", "sendgrid", "smtpapi"],
     "Mailgun": ["mailgun", "mg"],
     "Postmark": ["pm", "postmark"],
     "SparkPost": ["scph", "sparkpost"],
+
+    # Salesforce-Produkte
     "Salesforce Marketing Cloud": ["exacttarget", "sfdc", "salesforce", "50dkim1"],
-    "SAP Emarsys": ["key1", "key2", "10dkim1", "200608", "dkim0"],
     "Pardot": ["pardot"],
+
+    # Emarsys (erweitert um key5 & key6)
+    "SAP Emarsys": ["key1", "key2", "key5", "key6", "10dkim1", "200608", "dkim0"],
+
+    # Weitere ESPs
     "Optimizely / Episerver / Optivo": ["mailing", "spop1024"],
     "Sendinblue / Brevo": ["newsletter2go"],
     "Inxmail": ["inx", "inxdeka", "abc"],
@@ -37,27 +44,55 @@ DKIM_PROVIDERS = {
     "Experian": ["s20141100"],
     "DeployTeq": ["cd1", "cd2"],
     "Webanizer": ["m"],
+
+    # Ergänzungen aus deiner Liste
+    "HubSpot": ["hs1", "hs2"],
+    "Klaviyo": ["kl"],
 }
 
 
-def match_dkim_selector(selector: str) -> str | None:
-    """Findet passenden ESP anhand eines DKIM-Selectors aus `DKIM_PROVIDERS`.
+# ---------------------------------------------------------
+# DKIM DOMAIN MATCHES (d=)
+# ---------------------------------------------------------
 
-    Gibt den Providernamen zurück oder `None`, wenn kein Treffer.
+DKIM_DOMAIN_PROVIDERS = {
+    # Beispiel: d=xyz.emarsys.net → Emarsys
+    "emarsys.net": "SAP Emarsys",
+}
+
+
+# ---------------------------------------------------------
+# MATCHING LOGIK
+# ---------------------------------------------------------
+
+def match_dkim(selector: str, dkim_domain: str | None = None) -> str | None:
     """
-    if not selector:
-        return None
-    sel = selector.lower()
-    for esp, keywords in DKIM_PROVIDERS.items():
-        for key in keywords:
-            if not key:
-                continue
-            # exakte Übereinstimmung
-            if sel == key:
+    Bestimmt den wahrscheinlichen ESP anhand des DKIM-Selectors
+    und optional der DKIM-Domain (d=).
+    """
+    selector_lower = (selector or "").strip().lower()
+
+    # 1) Domain-Matching (d=)
+    if dkim_domain:
+        dkim_domain = dkim_domain.strip().lower()
+        for domain_pattern, esp in DKIM_DOMAIN_PROVIDERS.items():
+            if domain_pattern in dkim_domain:
                 return esp
-            # Präfix-Match (z.B. inx12345 -> Inxmail)
-            if len(key) > 1 and sel.startswith(key):
-                return esp
+
+    # 2) Selector-Matching
+    if selector_lower:
+        for esp, keywords in DKIM_PROVIDERS.items():
+            for key in keywords:
+                k = key.lower()
+
+                # Exaktes Match
+                if selector_lower == k:
+                    return esp
+
+                # Präfix-Match (z. B. inx12345 → Inxmail)
+                if len(k) > 1 and selector_lower.startswith(k):
+                    return esp
+
     return None
 
 st.set_page_config(page_title="MSG/EML Header Analyzer (final)", layout="wide")
@@ -230,11 +265,11 @@ def parse_headers(headers: str) -> dict:
             break
 
     # Extended provider detection: consider selector and d= domain
-    def lookup_from_selector(sel: str) -> str:
-        # use consolidated DKIM_PROVIDERS matcher first
+    def lookup_from_selector(sel: str, dom: str) -> str:
+        # first try the consolidated matcher which also considers d= domain
         if not sel or sel == "-":
             return "Unbekannt"
-        m = match_dkim_selector(sel)
+        m = match_dkim(sel, dom)
         if m:
             return m
         # fallback: simple substring heuristics
@@ -303,7 +338,7 @@ def parse_headers(headers: str) -> dict:
     # Build candidate list from both DKIM signatures
     candidates = []
     for sel, dom in ((result["dkim_selector_1"], result["dkim_domain_1"]), (result["dkim_selector_2"], result["dkim_domain_2"])):
-        provider = lookup_from_selector(sel)
+        provider = lookup_from_selector(sel, dom)
         if provider == "Unbekannt":
             provider = lookup_from_domain(dom)
         if provider != "Unbekannt":
