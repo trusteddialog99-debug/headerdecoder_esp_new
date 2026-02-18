@@ -30,6 +30,7 @@ DKIM_PROVIDERS = {
 
     # Weitere ESPs
     "Optimizely / Episerver / Optivo": ["mailing", "spop1024"],
+    "June": ["junemail"],
     "Sendinblue / Brevo": ["newsletter2go"],
     "Inxmail": ["inx", "inxdeka", "abc"],
     "Mailchimp": ["k1", "k2", "mcsv", "mandrill"],
