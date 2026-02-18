@@ -131,74 +131,7 @@ def parse_headers(headers: str) -> dict:
             ex2 = extract_from_block(dkim_blocks[1])
             result["dkim_domain_2"], result["dkim_selector_2"], result["dkim_itag_2"] = ex2
 
-    # Lookup email sending tool (DKIM selector -> provider)
-    def lookup_dkim_selector(sel: str) -> str:
-        if not sel or sel == "-":
-            return "Unbekannt"
-        s = sel.lower()
-        # common known selectors / substrings mapped to providers
-        mapping = {
-            "amazonses": "Amazon SES",
-            "ses": "Amazon SES",
-            "sendgrid": "SendGrid",
-            "sg": "SendGrid",
-            "mailgun": "Mailgun",
-            "mg": "Mailgun",
-            "mandrill": "Mandrill (Mailchimp)",
-            "mailchimp": "Mailchimp",
-            "google": "Google Workspace / Gmail",
-            "google._domainkey": "Google Workspace / Gmail",
-            "selector1": "Microsoft / Office 365",
-            "selector2": "Microsoft / Office 365",
-            "selector3": "Microsoft / Office 365",
-            "scph": "SparkPost",
-            "sparkpost": "SparkPost",
-            "smtpapi": "SparkPost",
-            "postmark": "Postmark",
-            "pm": "Postmark",
-            "yandex": "Yandex.Mail",
-            "zoho": "Zoho Mail",
-            "sendinblue": "Sendinblue (Brevo)",
-            "brevo": "Sendinblue (Brevo)",
-            "postfix": "Postfix (generic)",
-            "exclaimer": "Exclaimer",
-            "mailjet": "Mailjet",
-            "elasticemail": "Elastic Email",
-            "mailerlite": "MailerLite",
-            "smtp2go": "SMTP2GO",
-            "sendpulse": "SendPulse",
-            "mailerlite": "MailerLite",
-            "mailpoet": "MailPoet",
-            "mailrelay": "Mailrelay",
-            "sendwithus": "SendWithUs",
-            "constantcontact": "Constant Contact",
-            "salesforce": "Salesforce",
-            "pardot": "Pardot (Salesforce)",
-            "infusionsoft": "Keap/Infusionsoft",
-            "campaignmonitor": "Campaign Monitor",
-            "dotmailer": "dotmailer",
-            "rackspace": "Rackspace Email",
-            "gandi": "Gandi Mail",
-            "ovh": "OVH Mail",
-            "mailhost": "Generic Mail Host",
-            "smtp": "Generic SMTP",
-            "spf": "(not a selector)",
-        }
-        for k, v in mapping.items():
-            if k in s:
-                return v
-        # fallback heuristics: timestamps or hex-like selectors are not mapped
-        return "Unbekannt"
-
-    # prefer first DKIM selector that yields a known provider
-    provider = "Unbekannt"
-    for sel in (result["dkim_selector_1"], result["dkim_selector_2"]):
-        if sel and sel != "-":
-            found = lookup_dkim_selector(sel)
-            if found != "Unbekannt":
-                provider = found
-                break
-    result["email_versandtool"] = provider
+    # (provider lookup will be done after parsing From/Return-Path)
 
     # Authentication-Results DKIM pass check
     auth = re.search(r"(?mi)^authentication-results:\s*(.+)$", normalized, flags=re.M)
@@ -242,6 +175,120 @@ def parse_headers(headers: str) -> dict:
         if dd and dd != "-" and (dd.lower() == fd.lower() or dd.lower() == rp.lower()):
             result["dkim_alignment"] = "ja"
             break
+
+    # Extended provider detection: consider selector and d= domain
+    def lookup_from_selector(sel: str) -> str:
+        if not sel or sel == "-":
+            return "Unbekannt"
+        s = sel.lower()
+        sel_map = {
+            "amazonses": "Amazon SES",
+            "ses": "Amazon SES",
+            "sendgrid": "SendGrid",
+            "sg": "SendGrid",
+            "mailgun": "Mailgun",
+            "mg": "Mailgun",
+            "mandrill": "Mandrill (Mailchimp)",
+            "mailchimp": "Mailchimp",
+            "scph": "SparkPost",
+            "sparkpost": "SparkPost",
+            "postmark": "Postmark",
+            "yandex": "Yandex.Mail",
+            "zoho": "Zoho Mail",
+            "sendinblue": "Sendinblue (Brevo)",
+            "brevo": "Sendinblue (Brevo)",
+            "mailjet": "Mailjet",
+            "elasticemail": "Elastic Email",
+            "mailerlite": "MailerLite",
+            "smtp2go": "SMTP2GO",
+            "sendpulse": "SendPulse",
+            "mailpoet": "MailPoet",
+            "mailrelay": "Mailrelay",
+            "sendwithus": "SendWithUs",
+            "constantcontact": "Constant Contact",
+            "salesforce": "Salesforce",
+            "pardot": "Pardot (Salesforce)",
+            "infusionsoft": "Keap/Infusionsoft",
+            "campaignmonitor": "Campaign Monitor",
+            "dotmailer": "dotmailer",
+            "rackspace": "Rackspace Email",
+            "gandi": "Gandi Mail",
+            "ovh": "OVH Mail",
+        }
+        for k, v in sel_map.items():
+            if k in s:
+                return v
+        return "Unbekannt"
+
+    def lookup_from_domain(dom: str) -> str:
+        if not dom or dom == "-":
+            return "Unbekannt"
+        d = dom.lower()
+        dom_map = {
+            "amazonses.com": "Amazon SES",
+            "amazonaws.com": "Amazon SES",
+            "sendgrid.net": "SendGrid",
+            "mailgun.org": "Mailgun",
+            "mailchimp": "Mailchimp",
+            "google.com": "Google Workspace / Gmail",
+            "onmicrosoft.com": "Microsoft / Office 365",
+            "protection.outlook.com": "Microsoft / Office 365",
+            "sparkpostmail.com": "SparkPost",
+            "postmarkapp.com": "Postmark",
+            "yandex.ru": "Yandex.Mail",
+            "zoho.com": "Zoho Mail",
+            "sendinblue.com": "Sendinblue (Brevo)",
+            "mailjet.com": "Mailjet",
+            "elasticemail.com": "Elastic Email",
+            "mailerlite.com": "MailerLite",
+            "smtp2go.com": "SMTP2GO",
+            "sendpulse.com": "SendPulse",
+            "mailpoet.com": "MailPoet",
+            "mailrelay.com": "Mailrelay",
+            "constantcontact.com": "Constant Contact",
+            "salesforce.com": "Salesforce",
+            "pardot.com": "Pardot (Salesforce)",
+            "infusionsoft.com": "Keap/Infusionsoft",
+            "campaignmonitor.com": "Campaign Monitor",
+            "dotmailer.com": "dotmailer",
+            "rackspace.com": "Rackspace Email",
+            "gandi.net": "Gandi Mail",
+            "ovh.net": "OVH Mail",
+        }
+        for k, v in dom_map.items():
+            if k in d:
+                return v
+        # fallback: substring checks
+        if "amazonses" in d or "amazonaws" in d:
+            return "Amazon SES"
+        if "sendgrid" in d:
+            return "SendGrid"
+        if "mailgun" in d:
+            return "Mailgun"
+        if "postmark" in d:
+            return "Postmark"
+        return "Unbekannt"
+
+    # Build candidate list from both DKIM signatures
+    candidates = []
+    for sel, dom in ((result["dkim_selector_1"], result["dkim_domain_1"]), (result["dkim_selector_2"], result["dkim_domain_2"])):
+        provider = lookup_from_selector(sel)
+        if provider == "Unbekannt":
+            provider = lookup_from_domain(dom)
+        if provider != "Unbekannt":
+            candidates.append((provider, dom, sel))
+
+    chosen = "Unbekannt"
+    if candidates:
+        # prefer a provider where the d= domain differs from From domain (i.e., third-party)
+        for prov, dom, sel in candidates:
+            if fd and fd != "-" and dom and dom != "-" and dom.lower() != fd.lower():
+                chosen = prov
+                break
+        if chosen == "Unbekannt":
+            chosen = candidates[0][0]
+
+    result["email_versandtool"] = chosen
 
     return result
 
