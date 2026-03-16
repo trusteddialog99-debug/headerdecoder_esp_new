@@ -3,8 +3,6 @@ import pandas as pd
 import tempfile
 import os
 import re
-import io
-import json
 from email.utils import parseaddr
 from email.header import decode_header
 import olefile
@@ -388,55 +386,20 @@ if uploaded_files:
         results.append(row)
 
     df = pd.DataFrame(results)
-    cols = [
-        "filename",
-        "dkim_domain_1",
-        "dkim_selector_1",
-        "dkim_itag_1",
-        "dkim_domain_2",
-        "dkim_selector_2",
-        "dkim_itag_2",
-        "from_domain",
-        "returnpath_domain",
-        "dkim_auth_result",
-        "dkim_alignment",
-        "email_versandtool",
-        "headers_found",
-    ]
+    cols = ["filename",
+            "dkim_domain_1","dkim_selector_1","dkim_itag_1",
+            "dkim_domain_2","dkim_selector_2","dkim_itag_2",
+            "from_domain","returnpath_domain",
+            "dkim_auth_result","dkim_alignment","email_versandtool","headers_found"]
     df = df.reindex(columns=[c for c in cols if c in df.columns])
     st.subheader("Analyse-Ergebnisse")
     st.dataframe(df)
 
-    # Button: Excel-Download (.xlsx)
-    towrite = io.BytesIO()
-    with pd.ExcelWriter(towrite, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Analyse")
-    towrite.seek(0)
     st.download_button(
-        "Excel herunterladen",
-        towrite.read(),
-        "header_analysis.xlsx",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "CSV herunterladen",
+        df.to_csv(index=False).encode("utf-8"),
+        "header_analysis.csv",
+        "text/csv"
     )
-
-    # Button: Kopiere die Tabelle als TSV in die Zwischenablage (einfügbar in Excel)
-    tsv = df.to_csv(index=False, sep='\t')
-    tsv_json = json.dumps(tsv)
-    copy_html = f"""
-    <button id="copy-btn">Tabelle kopieren (für Excel)</button>
-    <script>
-    const tsv = {tsv_json};
-    document.getElementById('copy-btn').addEventListener('click', async () => {{
-      try {{
-        await navigator.clipboard.writeText(tsv);
-        document.getElementById('copy-btn').innerText = 'Kopiert ✓';
-        setTimeout(()=>{{document.getElementById('copy-btn').innerText = 'Tabelle kopieren (für Excel)'}},2000);
-      }} catch(e) {{
-        alert('Kopieren fehlgeschlagen: '+e);
-      }}
-    }});
-    </script>
-    """
-    st.components.v1.html(copy_html, height=60)
 else:
     st.info("Bitte MSG- oder EML-Dateien hochladen…")
